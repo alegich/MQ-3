@@ -28,7 +28,6 @@
  */
  
  #include "Nokia5110.h"
- #include "hc-sr04.h"
  #include "mq-3.h"
 
 // user button connected to PF4 (increment counter on falling edge)
@@ -63,6 +62,17 @@ volatile unsigned long FallingEdges = 0;
 unsigned char calibrateMq3 = 1; // make calibration on start
 float R0 = 0;
 
+void delay(unsigned long msec){ 
+  unsigned long count;
+  while(msec > 0 ) {  // repeat while there are still delay
+    count = 16000;    // about 1ms
+    while (count > 0) { 
+      count--;
+    } // This while loop takes approximately 3 cycles
+    msec--;
+  }
+}
+
 void EdgeCounter_Init(void){                          
   SYSCTL_RCGC2_R |= 0x00000020; // (a) activate clock for port F
   FallingEdges = 0;             // (b) initialize counter
@@ -86,7 +96,6 @@ void EdgeCounter_Init(void){
 void GPIOPortF_Handler(void){
   GPIO_PORTF_ICR_R = 0x10;      // acknowledge flag4
   FallingEdges = FallingEdges + 1;
-	LedToggle();
 	calibrateMq3 = !calibrateMq3;
 }
 int sprintf(char*, const char*, ...);
@@ -98,14 +107,21 @@ void checkCalibration() {
 	}
 }
 
+void OutStringPart(char* begin) {
+	const unsigned int size = 11;
+	char endChar = begin[size];
+	begin[size] = '\0';
+	Nokia5110_OutString(begin);
+	begin[size] = endChar;
+}
+
 //debug code
 int main(void){
-	int32_t dist = 0;
-	char distStr[20] = "";
-	char mq3R0[30] = "";
-	char mq3Ratio[30] = "";
-	char mq3Concentration[30] = "";
-	float gasRatio = 0;
+	char longStr[] = "           Maximum allowable alcohol concentration in breathed out air in Poland is 0.4 mg/L           ";
+	unsigned int index = 0;
+	char output[30] = "";
+	float alcohol = 0;
+	float maxAlc = 0;
 	
   EdgeCounter_Init();           // initialize GPIO Port F interrupt
 	Mq3Init();
@@ -113,31 +129,25 @@ int main(void){
 	Nokia5110_Init();
 	Nokia5110_Clear();
 	Nokia5110_SetCursor(0, 0);
-	Nokia5110_OutString("Distance");
-	
-	InitRegisters();
+	Nokia5110_OutString("  Alcohol");
 	
   while(1){
 		//WaitForInterrupt();
-    Timer0_init();
-		dist = measureD();
-		OutSignal(dist);
+		alcohol = getConcentrationDiscrete(getGasRatio(R0));
+		sprintf(output, "C: %2.2f mg/L", alcohol);
 		Nokia5110_SetCursor(0, 1);
-		//Nokia5110_OutUDec(dist);
-		sprintf(distStr, "%d cm     ", dist);
-		Nokia5110_OutString(distStr);
-		//voltage = getInputVoltage();
-		//sprintf(mq3, "%f V, R0: %f", voltage, getR0(voltage));
-		sprintf(mq3R0, "R0: %2.4f", R0);
-		gasRatio = getGasRatio(R0);
-		sprintf(mq3Ratio, "R: %2.4f", gasRatio);
-		sprintf(mq3Concentration, "C: %2.2f mg/L", getConcentrationDiscrete(gasRatio));
-		Nokia5110_SetCursor(0, 2);
-		Nokia5110_OutString(mq3R0);
-		Nokia5110_SetCursor(0, 3);
-		Nokia5110_OutString(mq3Ratio);
-		Nokia5110_SetCursor(0, 4);
-		Nokia5110_OutString(mq3Concentration);
-		delay_Microsecond(10000);
+		Nokia5110_OutString(output);
+		if (alcohol > maxAlc) {
+			maxAlc = alcohol;
+			sprintf(output, " %2.2f mg/L", maxAlc);
+			Nokia5110_SetCursor(0, 3);
+			Nokia5110_OutString("  MAXIMUM");
+			Nokia5110_SetCursor(0, 4);
+			Nokia5110_OutString(output);
+		}
+		Nokia5110_SetCursor(0, 5);
+		OutStringPart(longStr + index);
+		index = index < sizeof(longStr) - 1 ? index + 1 : 0;
+		delay(100);
   }
 }
